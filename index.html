@@ -1,0 +1,777 @@
+import React, { useState } from 'react';
+import { Calendar, MessageSquare, BarChart3, Users, Gamepad2, Sparkles, Plus, Trash2, Check, Heart, Search, X } from 'lucide-react';
+
+const RoutinePlannerApp = () => {
+  const [activeSection, setActiveSection] = useState('promemoria');
+  const [reminders, setReminders] = useState({
+    date: new Date().toISOString().split('T')[0],
+    mattina: [],
+    pomeriggio: [],
+    sera: [],
+    notte: []
+  });
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
+  const [isLoadingAi, setIsLoadingAi] = useState(false);
+  const [comments, setComments] = useState([
+    { id: 1, author: 'Maria R.', category: 'alimentazione', text: 'Iniziare la giornata con un bicchiere d\'acqua e limone fa miracoli!', likes: 5, likedBy: [] },
+    { id: 2, author: 'Luca P.', category: 'sport', text: 'Fare stretching appena svegli aiuta a energizzare il corpo', likes: 8, likedBy: [] },
+    { id: 3, author: 'Sofia M.', category: 'mindfulness', text: '10 minuti di meditazione al mattino cambiano la giornata', likes: 12, likedBy: [] }
+  ]);
+  const [newComment, setNewComment] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('tutte');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeGame, setActiveGame] = useState(null);
+  
+  // Stati per il modal di aggiunta task
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [currentTimeSlot, setCurrentTimeSlot] = useState('');
+  const [newTaskText, setNewTaskText] = useState('');
+  const [newTaskTime, setNewTaskTime] = useState('');
+  const [taskBulletPoints, setTaskBulletPoints] = useState(['']);
+
+  const categories = ['alimentazione', 'sport', 'hobby', 'mindfulness', 'produttività', 'sonno'];
+  const timeSlots = ['mattina', 'pomeriggio', 'sera', 'notte'];
+
+  const openAddModal = (timeSlot) => {
+    setCurrentTimeSlot(timeSlot);
+    setShowAddModal(true);
+    setNewTaskText('');
+    setNewTaskTime('');
+    setTaskBulletPoints(['']);
+  };
+
+  const closeAddModal = () => {
+    setShowAddModal(false);
+    setCurrentTimeSlot('');
+    setNewTaskText('');
+    setNewTaskTime('');
+    setTaskBulletPoints(['']);
+  };
+
+  const addBulletPoint = () => {
+    setTaskBulletPoints([...taskBulletPoints, '']);
+  };
+
+  const updateBulletPoint = (index, value) => {
+    const updated = [...taskBulletPoints];
+    updated[index] = value;
+    setTaskBulletPoints(updated);
+  };
+
+  const removeBulletPoint = (index) => {
+    setTaskBulletPoints(taskBulletPoints.filter((_, i) => i !== index));
+  };
+
+  const saveTask = () => {
+    if (!newTaskText.trim()) return;
+    
+    const task = {
+      id: Date.now(),
+      text: newTaskText,
+      time: newTaskTime,
+      bulletPoints: taskBulletPoints.filter(bp => bp.trim() !== ''),
+      completed: false
+    };
+    
+    setReminders(prev => ({
+      ...prev,
+      [currentTimeSlot]: [...prev[currentTimeSlot], task]
+    }));
+    
+    closeAddModal();
+  };
+
+  const toggleTask = (timeSlot, taskId) => {
+    setReminders(prev => ({
+      ...prev,
+      [timeSlot]: prev[timeSlot].map(task =>
+        task.id === taskId ? { ...task, completed: !task.completed } : task
+      )
+    }));
+  };
+
+  const deleteTask = (timeSlot, taskId) => {
+    setReminders(prev => ({
+      ...prev,
+      [timeSlot]: prev[timeSlot].filter(task => task.id !== taskId)
+    }));
+  };
+
+  const askAI = async () => {
+    if (!aiQuestion.trim()) return;
+    
+    setIsLoadingAi(true);
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [
+            { 
+              role: "user", 
+              content: `Sei un assistente per la pianificazione della routine quotidiana. Rispondi in italiano in modo conciso e pratico. Domanda: ${aiQuestion}` 
+            }
+          ],
+        })
+      });
+
+      const data = await response.json();
+      const text = data.content.map(item => item.type === "text" ? item.text : "").join("\n");
+      setAiResponse(text);
+    } catch (error) {
+      setAiResponse("Mi dispiace, c'è stato un errore. Riprova più tardi.");
+    }
+    setIsLoadingAi(false);
+  };
+
+  const addComment = () => {
+    if (newComment.trim() && selectedCategory !== 'tutte') {
+      const comment = {
+        id: Date.now(),
+        author: 'Tu',
+        category: selectedCategory,
+        text: newComment,
+        likes: 0,
+        likedBy: []
+      };
+      setComments([comment, ...comments]);
+      setNewComment('');
+    }
+  };
+
+  const toggleLike = (commentId) => {
+    setComments(prev => prev.map(comment => {
+      if (comment.id === commentId) {
+        const hasLiked = comment.likedBy.includes('currentUser');
+        return {
+          ...comment,
+          likes: hasLiked ? comment.likes - 1 : comment.likes + 1,
+          likedBy: hasLiked 
+            ? comment.likedBy.filter(id => id !== 'currentUser')
+            : [...comment.likedBy, 'currentUser']
+        };
+      }
+      return comment;
+    }));
+  };
+
+  const getStatistics = () => {
+    let total = 0;
+    let completed = 0;
+    timeSlots.forEach(slot => {
+      total += reminders[slot].length;
+      completed += reminders[slot].filter(t => t.completed).length;
+    });
+    return { total, completed, percentage: total > 0 ? Math.round((completed / total) * 100) : 0 };
+  };
+
+  const filteredComments = comments.filter(comment => {
+    const matchesCategory = selectedCategory === 'tutte' || comment.category === selectedCategory;
+    const matchesSearch = comment.text.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         comment.author.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  // Gioco Quiz
+  const WellnessQuiz = () => {
+    const questions = [
+      { q: 'Quante ore di sonno sono raccomandate per un adulto?', a: ['5-6 ore', '7-9 ore', '10-12 ore'], correct: 1 },
+      { q: 'Qual è il momento migliore per fare esercizio?', a: ['Quando ti senti meglio', 'Solo al mattino', 'Solo alla sera'], correct: 0 },
+      { q: 'Quanti litri d\'acqua dovresti bere al giorno?', a: ['0.5-1 litro', '1.5-2 litri', '4-5 litri'], correct: 1 }
+    ];
+    const [currentQ, setCurrentQ] = useState(0);
+    const [score, setScore] = useState(0);
+    const [showResult, setShowResult] = useState(false);
+
+    const handleAnswer = (index) => {
+      let newScore = score;
+      if (index === questions[currentQ].correct) {
+        newScore = score + 1;
+        setScore(newScore);
+      }
+      
+      if (currentQ < questions.length - 1) {
+        setCurrentQ(currentQ + 1);
+      } else {
+        setShowResult(true);
+      }
+    };
+
+    const resetQuiz = () => {
+      setCurrentQ(0);
+      setScore(0);
+      setShowResult(false);
+      setActiveGame(null);
+    };
+
+    if (showResult) {
+      return (
+        <div className="bg-white p-8 rounded-2xl shadow-lg text-center">
+          <h3 className="text-3xl font-bold text-purple-600 mb-4">🎉 Quiz Completato!</h3>
+          <div className="text-6xl font-bold text-green-500 mb-4">{score}/{questions.length}</div>
+          <p className="text-xl text-gray-700 mb-6">
+            {score === questions.length ? 'Perfetto! Sei un esperto del benessere!' : 
+             score >= 2 ? 'Ottimo lavoro! Continua così!' : 
+             'Buon inizio! Continua a imparare!'}
+          </p>
+          <button
+            onClick={resetQuiz}
+            className="px-8 py-3 bg-gradient-to-r from-purple-400 to-pink-400 text-white rounded-full font-bold text-lg hover:from-purple-500 hover:to-pink-500 transition"
+          >
+            Torna ai Giochi
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-white p-8 rounded-2xl shadow-lg">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-2xl font-bold text-purple-600">Quiz sul Benessere</h3>
+          <button onClick={() => setActiveGame(null)} className="text-gray-500 hover:text-gray-700">
+            <X size={24} />
+          </button>
+        </div>
+        <div className="mb-4 text-sm text-gray-600">Domanda {currentQ + 1} di {questions.length}</div>
+        <p className="text-xl mb-6 font-semibold text-gray-800">{questions[currentQ].q}</p>
+        <div className="space-y-3">
+          {questions[currentQ].a.map((answer, idx) => (
+            <button
+              key={idx}
+              onClick={() => handleAnswer(idx)}
+              className="w-full p-4 bg-gradient-to-r from-purple-100 to-pink-100 text-gray-800 rounded-xl hover:from-purple-200 hover:to-pink-200 transition text-left font-medium"
+            >
+              {answer}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Gioco Gratitudine
+  const GratitudeGame = () => {
+    const [gratitudes, setGratitudes] = useState(['', '', '']);
+    const [completed, setCompleted] = useState(false);
+
+    const updateGratitude = (index, value) => {
+      const updated = [...gratitudes];
+      updated[index] = value;
+      setGratitudes(updated);
+    };
+
+    const completeChallenge = () => {
+      if (gratitudes.every(g => g.trim())) {
+        setCompleted(true);
+      }
+    };
+
+    const resetGame = () => {
+      setGratitudes(['', '', '']);
+      setCompleted(false);
+      setActiveGame(null);
+    };
+
+    if (completed) {
+      return (
+        <div className="bg-white p-8 rounded-2xl shadow-lg text-center">
+          <h3 className="text-3xl font-bold text-green-600 mb-4">💚 Meraviglioso!</h3>
+          <p className="text-xl text-gray-700 mb-6">
+            Hai completato la sfida della gratitudine! Ricorda di apprezzare le piccole cose ogni giorno.
+          </p>
+          <div className="bg-green-50 p-6 rounded-xl mb-6 text-left">
+            <h4 className="font-bold text-green-700 mb-3">Le tue gratitudini:</h4>
+            {gratitudes.map((g, idx) => (
+              <p key={idx} className="text-gray-700 mb-2">✨ {g}</p>
+            ))}
+          </div>
+          <button
+            onClick={resetGame}
+            className="px-8 py-3 bg-gradient-to-r from-green-400 to-teal-400 text-white rounded-full font-bold text-lg hover:from-green-500 hover:to-teal-500 transition"
+          >
+            Torna ai Giochi
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-white p-8 rounded-2xl shadow-lg">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-2xl font-bold text-green-600">💚 Gratitudine Quotidiana</h3>
+          <button onClick={() => setActiveGame(null)} className="text-gray-500 hover:text-gray-700">
+            <X size={24} />
+          </button>
+        </div>
+        <p className="text-gray-700 mb-6">Scrivi 3 cose per cui sei grato oggi:</p>
+        <div className="space-y-4 mb-6">
+          {gratitudes.map((g, idx) => (
+            <div key={idx}>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                {idx + 1}. Sono grato per...
+              </label>
+              <input
+                type="text"
+                value={g}
+                onChange={(e) => updateGratitude(idx, e.target.value)}
+                className="w-full p-3 border-2 border-green-300 rounded-xl focus:outline-none focus:border-green-500"
+                placeholder="Es: la mia famiglia, la salute, un bel tramonto..."
+              />
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={completeChallenge}
+          disabled={!gratitudes.every(g => g.trim())}
+          className="w-full py-3 bg-gradient-to-r from-green-400 to-teal-400 text-white rounded-xl font-bold text-lg hover:from-green-500 hover:to-teal-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Completa la Sfida
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-pink-100 to-blue-100 p-4">
+      <div className="max-w-6xl mx-auto">
+        <h1 className="text-5xl font-bold text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600" style={{fontFamily: 'Georgia, serif'}}>
+          ✨ La Mia Routine Perfetta ✨
+        </h1>
+
+        <div className="flex flex-wrap justify-center gap-3 mb-8">
+          {[
+            { id: 'promemoria', icon: Calendar, label: 'Promemoria', color: 'from-blue-400 to-blue-600' },
+            { id: 'ai', icon: Sparkles, label: 'AI Assistant', color: 'from-purple-400 to-purple-600' },
+            { id: 'statistiche', icon: BarChart3, label: 'Statistiche', color: 'from-green-400 to-green-600' },
+            { id: 'community', icon: Users, label: 'Community', color: 'from-pink-400 to-pink-600' },
+            { id: 'giochi', icon: Gamepad2, label: 'Giochi', color: 'from-orange-400 to-orange-600' }
+          ].map(section => (
+            <button
+              key={section.id}
+              onClick={() => setActiveSection(section.id)}
+              className={`flex items-center gap-2 px-6 py-3 rounded-full font-semibold transition transform hover:scale-105 shadow-lg ${
+                activeSection === section.id 
+                  ? `bg-gradient-to-r ${section.color} text-white` 
+                  : 'bg-white text-gray-700 hover:shadow-xl'
+              }`}
+            >
+              <section.icon size={20} />
+              {section.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-2xl p-8">
+          {activeSection === 'promemoria' && (
+            <div>
+              <div className="flex items-center gap-3 mb-6">
+                <Calendar className="text-blue-500" size={32} />
+                <h2 className="text-3xl font-bold text-gray-800" style={{fontFamily: 'Georgia, serif'}}>I Miei Promemoria</h2>
+              </div>
+              
+              <input
+                type="date"
+                value={reminders.date}
+                onChange={(e) => setReminders(prev => ({ ...prev, date: e.target.value }))}
+                className="w-full p-3 border-2 border-blue-300 rounded-xl mb-6 text-lg focus:outline-none focus:border-blue-500"
+              />
+
+              {timeSlots.map(slot => (
+                <div key={slot} className="mb-8 bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-2xl">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-2xl font-bold capitalize text-gray-700" style={{fontFamily: 'Georgia, serif'}}>
+                      {slot === 'mattina' && '🌅'} 
+                      {slot === 'pomeriggio' && '☀️'} 
+                      {slot === 'sera' && '🌆'} 
+                      {slot === 'notte' && '🌙'} 
+                      {' '}{slot}
+                    </h3>
+                    <button
+                      onClick={() => openAddModal(slot)}
+                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-400 to-purple-400 text-white rounded-full hover:from-blue-500 hover:to-purple-500 transition"
+                    >
+                      <Plus size={18} />
+                      Aggiungi
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {reminders[slot].map(task => (
+                      <div key={task.id} className="bg-white p-4 rounded-xl shadow">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={task.completed}
+                            onChange={() => toggleTask(slot, task.id)}
+                            className="w-6 h-6 rounded cursor-pointer accent-purple-500 mt-1 flex-shrink-0"
+                          />
+                          <div className="flex-1">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className={`text-lg font-semibold ${task.completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                                {task.text}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                {task.time && (
+                                  <span className="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-medium">
+                                    🕐 {task.time}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => deleteTask(slot, task.id)}
+                                  className="text-red-400 hover:text-red-600 transition"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+                            </div>
+                            {task.bulletPoints && task.bulletPoints.length > 0 && (
+                              <ul className="ml-4 space-y-1">
+                                {task.bulletPoints.map((bp, idx) => (
+                                  <li key={idx} className={`text-gray-600 ${task.completed ? 'line-through text-gray-400' : ''}`}>
+                                    • {bp}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {reminders[slot].length === 0 && (
+                      <p className="text-gray-400 italic text-center py-4">Nessuna attività pianificata</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeSection === 'ai' && (
+            <div>
+              <div className="flex items-center gap-3 mb-6">
+                <Sparkles className="text-purple-500" size={32} />
+                <h2 className="text-3xl font-bold text-gray-800" style={{fontFamily: 'Georgia, serif'}}>Assistente AI</h2>
+              </div>
+              
+              <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-2xl mb-6">
+                <p className="text-gray-700 mb-4 text-lg">Chiedimi consigli per organizzare la tua giornata!</p>
+                <textarea
+                  value={aiQuestion}
+                  onChange={(e) => setAiQuestion(e.target.value)}
+                  placeholder="Es: Come posso essere più produttivo al mattino?"
+                  className="w-full p-4 border-2 border-purple-300 rounded-xl mb-4 text-lg focus:outline-none focus:border-purple-500 min-h-32"
+                />
+                <button
+                  onClick={askAI}
+                  disabled={isLoadingAi}
+                  className="w-full py-3 bg-gradient-to-r from-purple-400 to-pink-400 text-white rounded-xl font-bold text-lg hover:from-purple-500 hover:to-pink-500 transition disabled:opacity-50"
+                >
+                  {isLoadingAi ? 'Sto pensando...' : '✨ Chiedi all\'AI'}
+                </button>
+              </div>
+
+              {aiResponse && (
+                <div className="bg-white p-6 rounded-2xl shadow-lg border-2 border-purple-200">
+                  <h3 className="text-xl font-bold text-purple-600 mb-3">Risposta:</h3>
+                  <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{aiResponse}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeSection === 'statistiche' && (
+            <div>
+              <div className="flex items-center gap-3 mb-6">
+                <BarChart3 className="text-green-500" size={32} />
+                <h2 className="text-3xl font-bold text-gray-800" style={{fontFamily: 'Georgia, serif'}}>Le Mie Statistiche</h2>
+              </div>
+              
+              {(() => {
+                const stats = getStatistics();
+                return (
+                  <div className="space-y-6">
+                    <div className="bg-gradient-to-br from-green-100 to-teal-100 p-8 rounded-2xl text-center">
+                      <div className="text-6xl font-bold text-green-600 mb-2">{stats.percentage}%</div>
+                      <p className="text-xl text-gray-700">Obiettivi Completati</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-white p-6 rounded-xl shadow-lg text-center">
+                        <div className="text-4xl font-bold text-blue-600 mb-2">{stats.completed}</div>
+                        <p className="text-gray-600">Completati</p>
+                      </div>
+                      <div className="bg-white p-6 rounded-xl shadow-lg text-center">
+                        <div className="text-4xl font-bold text-purple-600 mb-2">{stats.total}</div>
+                        <p className="text-gray-600">Totali</p>
+                      </div>
+                    </div>
+
+                    {timeSlots.map(slot => {
+                      const slotStats = reminders[slot];
+                      const completed = slotStats.filter(t => t.completed).length;
+                      const total = slotStats.length;
+                      const percentage = total > 0 ? (completed / total) * 100 : 0;
+
+                      return (
+                        <div key={slot} className="bg-white p-6 rounded-xl shadow">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-lg font-semibold capitalize text-gray-700">
+                              {slot === 'mattina' && '🌅'} 
+                              {slot === 'pomeriggio' && '☀️'} 
+                              {slot === 'sera' && '🌆'} 
+                              {slot === 'notte' && '🌙'} 
+                              {' '}{slot}
+                            </span>
+                            <span className="text-sm text-gray-600">{completed}/{total}</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-3">
+                            <div
+                              className="bg-gradient-to-r from-green-400 to-teal-400 h-3 rounded-full transition-all"
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {activeSection === 'community' && (
+            <div>
+              <div className="flex items-center gap-3 mb-6">
+                <Users className="text-pink-500" size={32} />
+                <h2 className="text-3xl font-bold text-gray-800" style={{fontFamily: 'Georgia, serif'}}>Community</h2>
+              </div>
+
+              <div className="mb-6 bg-gradient-to-br from-pink-50 to-purple-50 p-6 rounded-2xl">
+                <h3 className="text-xl font-bold text-gray-700 mb-4">💬 Pubblica un Commento</h3>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full p-3 border-2 border-pink-300 rounded-xl mb-3 text-lg focus:outline-none focus:border-pink-500"
+                >
+                  <option value="tutte">Seleziona una categoria</option>
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+                <textarea
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Condividi i tuoi consigli..."
+                  className="w-full p-4 border-2 border-pink-300 rounded-xl mb-3 text-lg focus:outline-none focus:border-pink-500 min-h-24"
+                />
+                <button
+                  onClick={addComment}
+                  className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white rounded-xl font-bold text-lg hover:from-pink-500 hover:to-purple-500 transition"
+                >
+                  Pubblica
+                </button>
+              </div>
+
+              <div className="mb-6">
+                <div className="flex gap-3 mb-4">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Cerca commenti..."
+                      className="w-full pl-10 p-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-pink-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <button
+                    onClick={() => setSelectedCategory('tutte')}
+                    className={`px-4 py-2 rounded-full font-semibold transition ${
+                      selectedCategory === 'tutte' 
+                        ? 'bg-gradient-to-r from-pink-400 to-purple-400 text-white' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    Tutte
+                  </button>
+                  {categories.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-4 py-2 rounded-full font-semibold transition capitalize ${
+                        selectedCategory === cat 
+                          ? 'bg-gradient-to-r from-pink-400 to-purple-400 text-white' 
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {filteredComments.map(comment => (
+                  <div key={comment.id} className="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <span className="font-bold text-gray-800 text-lg">{comment.author}</span>
+                        <span className="ml-3 px-3 py-1 bg-gradient-to-r from-pink-200 to-purple-200 text-purple-700 rounded-full text-sm capitalize">
+                          {comment.category}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => toggleLike(comment.id)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-full transition ${
+                          comment.likedBy.includes('currentUser')
+                            ? 'bg-pink-500 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-pink-100'
+                        }`}
+                      >
+                        <Heart size={18} fill={comment.likedBy.includes('currentUser') ? 'white' : 'none'} />
+                        {comment.likes}
+                      </button>
+                    </div>
+                    <p className="text-gray-700 text-lg leading-relaxed">{comment.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'giochi' && (
+            <div>
+              <div className="flex items-center gap-3 mb-6">
+                <Gamepad2 className="text-orange-500" size={32} />
+                <h2 className="text-3xl font-bold text-gray-800" style={{fontFamily: 'Georgia, serif'}}>Giochi sul Benessere</h2>
+              </div>
+              
+              {activeGame === 'wellness-quiz' ? (
+                <WellnessQuiz />
+              ) : activeGame === 'gratitude' ? (
+                <GratitudeGame />
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <button
+                    onClick={() => setActiveGame('wellness-quiz')}
+                    className="p-8 bg-gradient-to-br from-purple-400 to-pink-400 rounded-2xl shadow-lg hover:shadow-2xl transition transform hover:scale-105 text-left"
+                  >
+                    <h3 className="text-2xl font-bold text-white mb-2">🧠 Quiz sul Benessere</h3>
+                    <p className="text-white opacity-90">Testa le tue conoscenze sulla salute e il benessere</p>
+                  </button>
+                  
+                  <button
+                    onClick={() => setActiveGame('gratitude')}
+                    className="p-8 bg-gradient-to-br from-green-400 to-teal-400 rounded-2xl shadow-lg hover:shadow-2xl transition transform hover:scale-105 text-left"
+                  >
+                    <h3 className="text-2xl font-bold text-white mb-2">💚 Gratitudine Quotidiana</h3>
+                    <p className="text-white opacity-90">Pratica la gratitudine scrivendo 3 cose per cui sei grato</p>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modal per aggiungere task */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold text-gray-800">Aggiungi Attività - {currentTimeSlot}</h3>
+              <button onClick={closeAddModal} className="text-gray-500 hover:text-gray-700">
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Titolo dell'attività *
+                </label>
+                <input
+                  type="text"
+                  value={newTaskText}
+                  onChange={(e) => setNewTaskText(e.target.value)}
+                  placeholder="Es: Allenamento in palestra"
+                  className="w-full p-3 border-2 border-blue-300 rounded-xl focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Ora (opzionale)
+                </label>
+                <input
+                  type="time"
+                  value={newTaskTime}
+                  onChange={(e) => setNewTaskTime(e.target.value)}
+                  className="w-full p-3 border-2 border-blue-300 rounded-xl focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Punti elenco (opzionali)
+                </label>
+                {taskBulletPoints.map((bp, index) => (
+                  <div key={index} className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={bp}
+                      onChange={(e) => updateBulletPoint(index, e.target.value)}
+                      placeholder={`Dettaglio ${index + 1}`}
+                      className="flex-1 p-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"
+                    />
+                    {taskBulletPoints.length > 1 && (
+                      <button
+                        onClick={() => removeBulletPoint(index)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 size={20} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  onClick={addBulletPoint}
+                  className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold mt-2"
+                >
+                  <Plus size={18} />
+                  Aggiungi punto elenco
+                </button>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={closeAddModal}
+                  className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition"
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={saveTask}
+                  disabled={!newTaskText.trim()}
+                  className="flex-1 py-3 bg-gradient-to-r from-blue-400 to-purple-400 text-white rounded-xl font-bold hover:from-blue-500 hover:to-purple-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Salva Attività
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default RoutinePlannerApp;
